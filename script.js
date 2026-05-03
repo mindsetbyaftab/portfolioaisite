@@ -18,19 +18,144 @@ const revealObserver = new IntersectionObserver(
 
 revealElements.forEach((element) => revealObserver.observe(element));
 
-// Keep UI-only form submission friendly while no backend is connected yet.
-const contactForm = document.querySelector(".contact-form form");
+// Auto-sliding recent work carousel with responsive visible card counts.
+const carouselTrack = document.querySelector("[data-carousel-track]");
+const carouselViewport = document.querySelector("[data-carousel-viewport]");
+const carouselDots = document.querySelector("[data-carousel-dots]");
 
-contactForm.addEventListener("submit", (event) => {
-  event.preventDefault();
-  const button = contactForm.querySelector("button");
-  const originalText = button.innerHTML;
+if (carouselTrack && carouselViewport && carouselDots) {
+  const autoplayDelay = 2600;
+  let autoplayId = null;
+  let currentIndex = 0;
+  let visibleCount = 1;
+  let originalSlides = [];
 
-  button.innerHTML = '<i class="fa-solid fa-check"></i> Message Draft Ready';
-  button.disabled = true;
+  const getVisibleCount = () => {
+    if (window.matchMedia("(min-width: 960px)").matches) {
+      return 4;
+    }
 
-  setTimeout(() => {
-    button.innerHTML = originalText;
-    button.disabled = false;
-  }, 1800);
-});
+    if (window.matchMedia("(min-width: 700px)").matches) {
+      return 2;
+    }
+
+    return 1;
+  };
+
+  const getSlides = () => Array.from(carouselTrack.children);
+
+  const getSlideStep = () => {
+    const firstSlide = carouselTrack.querySelector(".recent-card");
+    if (!firstSlide) {
+      return 0;
+    }
+
+    const gap = parseFloat(window.getComputedStyle(carouselTrack).gap) || 0;
+    return firstSlide.getBoundingClientRect().width + gap;
+  };
+
+  const updateDots = () => {
+    const activeIndex = (currentIndex - visibleCount + originalSlides.length) % originalSlides.length;
+    Array.from(carouselDots.children).forEach((dot, index) => {
+      dot.classList.toggle("is-active", index === activeIndex);
+    });
+  };
+
+  const moveToCurrentSlide = (withTransition = true) => {
+    carouselTrack.style.transition = withTransition ? "transform 0.65s ease" : "none";
+    carouselTrack.style.transform = `translateX(-${getSlideStep() * currentIndex}px)`;
+    updateDots();
+  };
+
+  const buildDots = () => {
+    carouselDots.innerHTML = "";
+
+    originalSlides.forEach((_, index) => {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "carousel-dot";
+      dot.setAttribute("aria-label", `Go to recent work slide ${index + 1}`);
+      dot.addEventListener("click", () => {
+        currentIndex = index + visibleCount;
+        moveToCurrentSlide();
+        restartAutoplay();
+      });
+      carouselDots.appendChild(dot);
+    });
+  };
+
+  const rebuildCarousel = () => {
+    const safeIndex = originalSlides.length
+      ? (currentIndex - visibleCount + originalSlides.length) % originalSlides.length
+      : 0;
+
+    getSlides()
+      .filter((slide) => slide.hasAttribute("data-clone"))
+      .forEach((slide) => slide.remove());
+
+    originalSlides = getSlides();
+    visibleCount = getVisibleCount();
+
+    const clonesBefore = originalSlides.slice(-visibleCount).map((slide) => {
+      const clone = slide.cloneNode(true);
+      clone.setAttribute("data-clone", "true");
+      return clone;
+    });
+
+    const clonesAfter = originalSlides.slice(0, visibleCount).map((slide) => {
+      const clone = slide.cloneNode(true);
+      clone.setAttribute("data-clone", "true");
+      return clone;
+    });
+
+    clonesBefore.forEach((clone) => {
+      carouselTrack.insertBefore(clone, carouselTrack.firstChild);
+    });
+
+    clonesAfter.forEach((clone) => {
+      carouselTrack.appendChild(clone);
+    });
+
+    currentIndex = visibleCount + safeIndex;
+    buildDots();
+    moveToCurrentSlide(false);
+  };
+
+  const nextSlide = () => {
+    currentIndex += 1;
+    moveToCurrentSlide();
+  };
+
+  const stopAutoplay = () => {
+    if (autoplayId) {
+      window.clearInterval(autoplayId);
+      autoplayId = null;
+    }
+  };
+
+  const startAutoplay = () => {
+    stopAutoplay();
+    autoplayId = window.setInterval(nextSlide, autoplayDelay);
+  };
+
+  const restartAutoplay = () => {
+    stopAutoplay();
+    startAutoplay();
+  };
+
+  carouselTrack.addEventListener("transitionend", () => {
+    if (currentIndex >= originalSlides.length + visibleCount) {
+      currentIndex = visibleCount;
+      moveToCurrentSlide(false);
+    }
+  });
+
+  carouselViewport.addEventListener("mouseenter", stopAutoplay);
+  carouselViewport.addEventListener("mouseleave", startAutoplay);
+  carouselViewport.addEventListener("focusin", stopAutoplay);
+  carouselViewport.addEventListener("focusout", startAutoplay);
+  window.addEventListener("resize", rebuildCarousel);
+
+  rebuildCarousel();
+  startAutoplay();
+}
